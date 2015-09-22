@@ -28,19 +28,11 @@ char* server_packet_to_bytes(struct server_packet packet) {
 }
 
 int read_file(FILE *fp, struct server_packet *packet) {
-    int i;
-    
-    for (i = 0; i < BUFFER_SIZE - 2; i ++) {
-        char temp;
-        if ((temp = fgetc(fp)) == EOF) {
-            packet->size = i;
-            return 1;
-        } else {
-            packet->file_data[i] = temp;
-        }
-    }
-    packet->size = BUFFER_SIZE - 2;
-    return 0;
+    packet->size = fread(packet->file_data, 1, BUFFER_SIZE - 2, fp);
+    if (packet->size < BUFFER_SIZE - 2)
+        return 1;
+    else
+        return 0;
 }
 
 int main (int argc, char **argv) {
@@ -160,6 +152,7 @@ int main (int argc, char **argv) {
             while(window_count < window_size && !is_read_finished) {
                 struct server_packet packet;
                 is_read_finished = read_file(fp, &packet);
+                printf("Packet size = %d\n", packet.size);
                 write(client_fd, server_packet_to_bytes(packet), BUFFER_SIZE);
                 window_count++;
             }
