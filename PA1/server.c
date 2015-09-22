@@ -15,8 +15,6 @@
 int send_packet(int client_fd, FILE *fp, int *window_count) {
     char byte_data[BUFFER_SIZE];
     int read_bytes = fread(byte_data, 1, BUFFER_SIZE, fp);
-    printf("Bytes sent: %d", read_bytes);
-    fflush(stdout);
     send(client_fd, byte_data, read_bytes, 0);
     (*window_count)++;
     if (read_bytes < BUFFER_SIZE)
@@ -99,15 +97,10 @@ int main (int argc, char **argv) {
             printf("Accepting client request failed! accept Returned: %d\n", client_fd); 
             exit(1);
         }
-        printf("Hi!\n");
         char client_message[CLIENT_MESSAGE_SIZE];
         int message_size = recv(client_fd, client_message, CLIENT_MESSAGE_SIZE, 0);
-        printf("Message Received: %c\n", client_message[0]);
-        fflush(stdout);
-        if (message_size != CLIENT_MESSAGE_SIZE) {
-            printf("Invalid client message size!\n");
-            exit(1);
-        }
+        if (message_size <= 0)
+            continue;
         if (client_message[0] == 'A') {
             // ACK
             if (window_count == 0) {
@@ -138,7 +131,6 @@ int main (int argc, char **argv) {
             window_count = 0;
             while(window_count < window_size && !is_read_finished)
                 is_read_finished = send_packet(client_fd, fp, &window_count);
-            printf("Done!\n");
             fflush(stdout);
         } else {
             printf("Invalid client request!\n");
