@@ -12,12 +12,22 @@
 #define SN_SIZE 2
 #define CLIENT_MESSAGE_SIZE 3
 
-int send_packet(int client_fd, FILE *fp, int *window_count) {
+int send_packet(int client_fd, FILE *fp, int *window_count, long last_pos) {
+    
     char byte_data[BUFFER_SIZE];
-    int read_bytes = fread(byte_data, 1, BUFFER_SIZE, fp);
-    send(client_fd, byte_data, read_bytes, 0);
+    memset(byte_data, 0, BUFFER_SIZE);
+    fread(byte_data + 1, 1, BUFFER_SIZE - 1, fp);
+
+    // last packet
+    if (ftell(fp) == last_pos)
+        byte_data[0] = 1;
+    else
+        byte_data[0] = 0;
+ 
+    write(client_fd, byte_data, BUFFER_SIZE);
     (*window_count)++;
-    if (read_bytes < BUFFER_SIZE)
+
+    if (byte_data[0] == 1)
         return 1;
     else
         return 0;
@@ -69,7 +79,7 @@ int main (int argc, char **argv) {
     struct sockaddr_in client_addr;
     socklen_t len = sizeof(client_addr);
     int client_fd = accept(socket_fd, (struct sockaddr *)&client_addr, &len);
-
+    long last_pos;
     while(1) { 
         if (client_fd < 0) {
              switch (errno) {
@@ -98,14 +108,17 @@ int main (int argc, char **argv) {
             exit(1);
         }
         char client_message[CLIENT_MESSAGE_SIZE];
-        int message_size = recv(client_fd, client_message, CLIENT_MESSAGE_SIZE, 0);
-        if (message_size <= 0)
-            continue;
+        int message_size = 0;
+        while (message_size < 3) {
+            int incr_message_size = read(client_fd, client_message + message_size, CLIENT_MESSAGE_SIZE - message_size);
+            message_size += incr_message_size;
+        }
         if (client_message[0] == 'A') {
             // ACK
             if (window_count == 0) {
                 printf("Received ACK without sending message!\n");
                 exit(1);
+                continue;
             }
             if (fp == NULL) {
                 printf("Received ACK before fp is set!");
@@ -113,7 +126,7 @@ int main (int argc, char **argv) {
             }
             window_count--;
             while(window_count < window_size && !is_read_finished)
-                is_read_finished = send_packet(client_fd, fp, &window_count);              
+                is_read_finished = send_packet(client_fd, fp, &window_count, last_pos);
         } else if (client_message[0] == 'R') {
             // Request
             int file_choice = client_message[1];
@@ -126,12 +139,14 @@ int main (int argc, char **argv) {
                 exit(1);
             }
             fp = fopen(filename[file_choice], "r");
+            fseek(fp, 0, SEEK_END);
+            last_pos = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
             window_size = client_message[2];
             is_read_finished = 0;
             window_count = 0;
             while(window_count < window_size && !is_read_finished)
-                is_read_finished = send_packet(client_fd, fp, &window_count);
-            fflush(stdout);
+                is_read_finished = send_packet(client_fd, fp, &window_count, last_pos);
         } else {
             printf("Invalid client request!\n");
             exit(1);
