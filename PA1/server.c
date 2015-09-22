@@ -55,13 +55,12 @@ int main (int argc, char **argv) {
     char *filename[3] = {"./data/TransferMe10.mp4", "./data/TransferMe20.mp4", "./data/TransferMe30.mp4"};
 
 	// Check arguments
-    if (argc != 3) {
-        printf("Usage: %s <port> <window_size>\n", argv[0]);
+    if (argc != 2) {
+        printf("Usage: %s <port>\n", argv[0]);
         exit(1);
     }
 
     int port = atoi(argv[1]);
-    int window_size = atoi(argv[2]);
     int socket_fd;
     // Opening socket
     if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -89,10 +88,11 @@ int main (int argc, char **argv) {
 
     printf("Start waiting...");
 
-    struct server_packet *window = (struct server_packet *)malloc(window_size * sizeof(struct server_packet));
+    struct server_packet *window;
     int window_count;
     FILE *fp = NULL;
     int is_read_finished = 1;
+    int window_size;
 
     while(1) {
         // accept client fd
@@ -138,6 +138,8 @@ int main (int argc, char **argv) {
                 exit(1);
             }
             fp = fopen(filename[file_choice], "r");
+            window_size = client_message[2];
+            window = (struct server_packet *)malloc(window_size * sizeof(struct server_packet));
             is_read_finished = 0;
             window_count = 0;
             while(window_count < window_size && !is_read_finished) {
