@@ -77,7 +77,7 @@ int main (int argc, char **argv) {
         } else if (!strcmp("F", cmdline)) {
             char client_message[CLIENT_MESSAGE_SIZE] = {'\0', };
             client_message[0] = 'F';
-            write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
+            send(socket_fd, client_message, CLIENT_MESSAGE_SIZE, 0);
             close(socket_fd);
             break;
         } else if (cmdline[0] == 'R') {
@@ -91,24 +91,22 @@ int main (int argc, char **argv) {
                 printf("Cannot read file_choice from R command!\n");
                 continue;
             }
-            if (file_choice < 0 && file_choice > 2) {
-                printf("Invalid file_choice! Should be between 0 and 2!\n");
+            if (file_choice < 1 && file_choice > 3) {
+                printf("Invalid file_choice! Should be between 1 and 3!\n");
                 continue;
             }
             char client_message[CLIENT_MESSAGE_SIZE];
             client_message[0] = 'R';
-            client_message[1] = file_choice;
+            client_message[1] = file_choice - 1;
             client_message[2] = window_size;
             write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
             prev_byte = 0;
             cur_byte = 0;
             while(1) {
                 char packet[BUFFER_SIZE];
-                int packet_size = read(socket_fd, packet, BUFFER_SIZE);
-                if (packet_size == 0)
+                int packet_size = recv(socket_fd, packet, BUFFER_SIZE, 0);
+                if (packet_size <= 0)
                     continue;
-                printf("Packet Received = %dbytes\n", packet_size);
-                fflush(stdout);
                 prev_byte = cur_byte;
                 cur_byte += packet_size;
                 if (prev_byte / (1024 * 1024) != cur_byte / (1024 * 1024)) {
@@ -150,8 +148,7 @@ void handler() {
 	// TODO: Send an ACK packet
     char client_message[CLIENT_MESSAGE_SIZE] = {'\0', };
     client_message[0] = 'A';
-    int return_value = write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
-    printf("ACK sent, return_value = %d\n, socket fd = %d", return_value, socket_fd);
+    send(socket_fd, client_message, CLIENT_MESSAGE_SIZE, 0);
 }
 
 /*
