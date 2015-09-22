@@ -14,7 +14,7 @@ void handler();
 timer_t set_timer(long long);
 
 int main (int argc, char **argv) {
-   
+
 	// Check arguments 
     if (argc != 7) {
         printf("Usage: %s <hostname> <port> [Arguments]\n", argv[0]);
@@ -24,18 +24,27 @@ int main (int argc, char **argv) {
         exit(1);
     }
 
+    char server_hostname[100];
+    strcpy(server_hostname, argv[1]);
+    int server_port = atoi(argv[2]);
+    int window_size, ack_delay;
+    if (!strcmp("-w", argv[3]) && !strcmp("-d", argv[5])) {
+        window_size = atoi(argv[4]);
+        ack_delay = atoi(argv[6]);
+    } else if (!strcmp("-d", argv[3]) && !strcmp("-w", argv[5])) {
+        window_size = atoi(argv[6]);
+        ack_delay = atoi(argv[4]);
+    } else {
+        printf("Invalid argument option!\n");
+        exit(1);
+    }
+
     // Set Handler for timers
     struct sigaction sigact;
     sigemptyset(&sigact.sa_mask);
     sigaddset(&sigact.sa_mask, SIGALRM);
     sigact.sa_handler = &handler;
     sigaction(SIGALRM, &sigact, NULL);
-
-    // Timer example
-    set_timer(1000);
-    set_timer(2000);
-    set_timer(3000);
-    set_timer(4000);
 
     while(1){}
 
