@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <pwd.h>
+#include <stdio_ext.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -14,57 +16,9 @@
 void handler();
 timer_t set_timer(long long);
 
-int socket_fd;
-
-struct timer_node {
-    timer_t tid;
-    struct timer_node *next;
-    struct timer_node *prev;
-};
-
-struct timer_node *head, *tail;
-
-void init_timer_list() {
-    //initialize timer list
-    head = (struct timer_node *)malloc(sizeof(struct timer_node));
-    tail = (struct timer_node *)malloc(sizeof(struct timer_node));
-    head->next = tail;
-    head->prev = NULL;
-    head->tid = NULL;
-    tail->next = NULL;
-    tail->prev = head;
-    head->tid = NULL;
-}
-
-void add_new_timer(timer_t tid) {
-    struct timer_node *new_timer_node;
-    new_timer_node = (struct timer_node *)malloc(sizeof(struct timer_node));
-    new_timer_node->next = tail;
-    new_timer_node->prev = tail->prev;
-    new_timer_node->tid = tid;
-    
-    tail->prev->next = new_timer_node;
-    tail->prev = new_timer_node;
-}
-
-void destroy_oldest_timer() {
-    struct timer_node *oldest_timer_node = head->next;
-    if (head->next == tail)
-        return;
-    head->next = oldest_timer_node->next;
-    oldest_timer_node->next->prev = head;
-    timer_delete(oldest_timer_node->tid);
-    free(oldest_timer_node);
-}
-
-void destroy_all_timer() {
-    struct timer_node *timer_node;
-    timer_node = head->next;
-    while(timer_node != tail) {
-        destroy_oldest_timer();
-        timer_node = head->next;
-    }
-}
+int socket_fd, next_timer_index, last_alive_timer_index, timer_list_size;
+int dead_timer_count, total_timer_count;
+timer_t *timer_list;
 
 int main (int argc, char **argv) {
 
@@ -76,6 +30,18 @@ int main (int argc, char **argv) {
         printf("\t\t-d\t\tACK delay in msec");
         exit(1);
     }
+
+    sleep(1);
+
+/*
+    // Set Handler for timers
+    struct sigaction sigact;
+    sigemptyset(&sigact.sa_mask);
+    sigaddset(&sigact.sa_mask, SIGALRM);
+    sigact.sa_handler = &handler;
+    sigaction(SIGALRM, &sigact, NULL);*/
+
+    signal(SIGALRM, handler);
 
     char server_hostname[100];
     strcpy(server_hostname, argv[1]);
@@ -90,14 +56,7 @@ int main (int argc, char **argv) {
     } else {
         printf("Invalid argument option!\n");
         exit(1);
-    }
-
-    // Set Handler for timers
-    struct sigaction sigact;
-    sigemptyset(&sigact.sa_mask);
-    sigaddset(&sigact.sa_mask, SIGALRM);
-    sigact.sa_handler = &handler;
-    sigaction(SIGALRM, &sigact, NULL);
+    } 
 
     if ((socket_fd = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
         printf("Opening socket failed!\n");
@@ -112,10 +71,17 @@ int main (int argc, char **argv) {
 
     int is_connected = 0;
     int prev_byte, cur_byte;
-    init_timer_list();
+    // initialize timer list
+    next_timer_index = 0;
+    last_alive_timer_index = 0;
+    dead_timer_count = 0;
+    total_timer_count = 0;
+    timer_list_size = window_size * 4;
+    timer_list = (timer_t *)malloc(timer_list_size * sizeof(timer_t));
     while(1){
-        char cmdline[10];
-        fgets(cmdline, 10, stdin);
+        char cmdline[30];
+        memset(cmdline, 0, 30);
+        fgets(cmdline, 20, stdin);
         cmdline[strlen(cmdline) - 1] = '\0';
         if (strlen(cmdline) == 0)
             continue;
@@ -126,14 +92,14 @@ int main (int argc, char **argv) {
             }
             is_connected = 1;
         } else if (!strcmp("F", cmdline)) {
-            char client_message[CLIENT_MESSAGE_SIZE] = {'\0', };
+            char client_message[CLIENT_MESSAGE_SIZE];
+            memset(client_message, 0, CLIENT_MESSAGE_SIZE);
             client_message[0] = 'F';
-            send(socket_fd, client_message, CLIENT_MESSAGE_SIZE, 0);
+            write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
             close(socket_fd);
             break;
         } else if (cmdline[0] == 'R') {
             if (!is_connected) {
-                printf("%d\n", is_connected);
                 printf("Request cannot be made before making connection!\n");
                 continue;
             }
@@ -147,33 +113,36 @@ int main (int argc, char **argv) {
                 continue;
             }
             char client_message[CLIENT_MESSAGE_SIZE];
+            memset(client_message, 0, CLIENT_MESSAGE_SIZE);
             client_message[0] = 'R';
             client_message[1] = file_choice - 1;
             client_message[2] = window_size;
             write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
             prev_byte = 0;
-            cur_byte = 0;
-            destroy_all_timer();
+            cur_byte = 0; 
             while(1) {
                 char packet[BUFFER_SIZE];
-                int packet_size = recv(socket_fd, packet, BUFFER_SIZE, 0);
-                if (packet_size <= 0)
-                    continue;
+                memset(packet, 0, BUFFER_SIZE);
+                int packet_size = 0;
+                while(packet_size < BUFFER_SIZE) {
+                    int incr_packet_size = read(socket_fd, packet + packet_size, BUFFER_SIZE - packet_size);
+                    packet_size += incr_packet_size;
+                }
                 prev_byte = cur_byte;
-                cur_byte += packet_size;
+                cur_byte += packet_size - 1;
                 if (prev_byte / (1024 * 1024) != cur_byte / (1024 * 1024)) {
                     printf("%d MB transmitted\n", cur_byte / (1024 * 1024));
-                    fflush(stdout);
                 }
-                if (packet_size < BUFFER_SIZE) {
+                if (packet[0] == 1) {
                     printf("File transfer finished\n");
-                    fflush(stdout);
                     break;
                 }
-                add_new_timer(set_timer(ack_delay));
+                timer_list[next_timer_index] = set_timer(ack_delay);
+                next_timer_index = (next_timer_index + 1) % timer_list_size;
             }
         }
     }
+    free(timer_list);
 
     // TODO: Create a socket for a client
     //      connect to a server
@@ -198,10 +167,11 @@ int main (int argc, char **argv) {
  */
 void handler() {
 	// TODO: Send an ACK packet
-    char client_message[CLIENT_MESSAGE_SIZE] = {'\0', };
+    char client_message[CLIENT_MESSAGE_SIZE];
+    memset(client_message, 0, CLIENT_MESSAGE_SIZE);
     client_message[0] = 'A';
-    send(socket_fd, client_message, CLIENT_MESSAGE_SIZE, 0);
-    destroy_oldest_timer();
+    write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
+    dead_timer_count++;
 }
 
 /*
@@ -213,7 +183,7 @@ timer_t set_timer(long long time) {
     				.it_value = {.tv_sec=0,.tv_nsec=0}};
 
 	int sec = time / 1000;
-	long n_sec = (time % 1000) * 1000;
+	long n_sec = (time % 1000) * 1000000;
     time_spec.it_value.tv_sec = sec;
     time_spec.it_value.tv_nsec = n_sec;
 
@@ -223,5 +193,12 @@ timer_t set_timer(long long time) {
     if (timer_settime(t_id, 0, &time_spec, NULL))
         perror("timer_settime");
 
+    // delete dead timers
+    for(; dead_timer_count != 0; dead_timer_count--) {
+        timer_delete(timer_list[last_alive_timer_index]);
+        total_timer_count--;
+        last_alive_timer_index = (last_alive_timer_index + 1) % timer_list_size;
+    }
+    total_timer_count++;
     return t_id;
 }
