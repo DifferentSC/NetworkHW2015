@@ -17,7 +17,7 @@ int send_packet(int client_fd, FILE *fp, int *window_count) {
     int read_bytes = fread(byte_data, 1, BUFFER_SIZE, fp);
     printf("Bytes sent: %d", read_bytes);
     fflush(stdout);
-    write(client_fd, byte_data, read_bytes);
+    send(client_fd, byte_data, read_bytes, 0);
     (*window_count)++;
     if (read_bytes < BUFFER_SIZE)
         return 1;
@@ -67,13 +67,12 @@ int main (int argc, char **argv) {
     FILE *fp = NULL;
     int is_read_finished = 1;
     int window_size;
+    // accept client fd
+    struct sockaddr_in client_addr;
+    socklen_t len = sizeof(client_addr);
+    int client_fd = accept(socket_fd, (struct sockaddr *)&client_addr, &len);
 
-    while(1) {
-        fflush(stdout);
-        // accept client fd
-        struct sockaddr_in client_addr;
-        socklen_t len = sizeof(client_addr);
-        int client_fd = accept(socket_fd, (struct sockaddr *)&client_addr, &len);
+    while(1) { 
         if (client_fd < 0) {
              switch (errno) {
                 case EAGAIN:
@@ -102,7 +101,7 @@ int main (int argc, char **argv) {
         }
         printf("Hi!\n");
         char client_message[CLIENT_MESSAGE_SIZE];
-        int message_size = read(client_fd, client_message, CLIENT_MESSAGE_SIZE);
+        int message_size = recv(client_fd, client_message, CLIENT_MESSAGE_SIZE, 0);
         printf("Message Received: %c\n", client_message[0]);
         fflush(stdout);
         if (message_size != CLIENT_MESSAGE_SIZE) {
@@ -119,6 +118,7 @@ int main (int argc, char **argv) {
                 printf("Received ACK before fp is set!");
                 exit(1);
             }
+            window_count--;
             while(window_count < window_size && !is_read_finished)
                 is_read_finished = send_packet(client_fd, fp, &window_count);              
         } else if (client_message[0] == 'R') {
@@ -144,7 +144,6 @@ int main (int argc, char **argv) {
             printf("Invalid client request!\n");
             exit(1);
         }
-        close(client_fd);
     }
 
 	// TODO: Read a specified file and send it to a client.
@@ -155,6 +154,7 @@ int main (int argc, char **argv) {
 	//		ACK packet.
     //      When a server receives an ACK packet, it will send
     //      next packet if available.
+    close(client_fd);
     close(socket_fd);
     return 0;
 }
