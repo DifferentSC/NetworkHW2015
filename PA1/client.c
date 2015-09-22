@@ -64,7 +64,8 @@ int main (int argc, char **argv) {
     int prev_byte, cur_byte;
     while(1){
         char cmdline[10];
-        scanf("%s", cmdline);
+        fgets(cmdline, 10, stdin);
+        cmdline[strlen(cmdline) - 1] = '\0';
         if (strlen(cmdline) == 0)
             continue;
         if (!strcmp("C", cmdline)) {
@@ -72,6 +73,7 @@ int main (int argc, char **argv) {
                 printf("Connection failure!\n");
                 continue;
             }
+            is_connected = 1;
         } else if (!strcmp("F", cmdline)) {
             char client_message[CLIENT_MESSAGE_SIZE] = {'\0', };
             client_message[0] = 'F';
@@ -80,6 +82,7 @@ int main (int argc, char **argv) {
             break;
         } else if (cmdline[0] == 'R') {
             if (!is_connected) {
+                printf("%d\n", is_connected);
                 printf("Request cannot be made before making connection!\n");
                 continue;
             }
