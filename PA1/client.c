@@ -16,6 +16,56 @@ timer_t set_timer(long long);
 
 int socket_fd;
 
+struct timer_node {
+    timer_t tid;
+    struct timer_node *next;
+    struct timer_node *prev;
+};
+
+struct timer_node *head, *tail;
+
+void init_timer_list() {
+    //initialize timer list
+    head = (struct timer_node *)malloc(sizeof(struct timer_node));
+    tail = (struct timer_node *)malloc(sizeof(struct timer_node));
+    head->next = tail;
+    head->prev = NULL;
+    head->tid = NULL;
+    tail->next = NULL;
+    tail->prev = head;
+    head->tid = NULL;
+}
+
+void add_new_timer(timer_t tid) {
+    struct timer_node *new_timer_node;
+    new_timer_node = (struct timer_node *)malloc(sizeof(struct timer_node));
+    new_timer_node->next = tail;
+    new_timer_node->prev = tail->prev;
+    new_timer_node->tid = tid;
+    
+    tail->prev->next = new_timer_node;
+    tail->prev = new_timer_node;
+}
+
+void destroy_oldest_timer() {
+    struct timer_node *oldest_timer_node = head->next;
+    if (head->next == tail)
+        return;
+    head->next = oldest_timer_node->next;
+    oldest_timer_node->next->prev = head;
+    timer_delete(oldest_timer_node->tid);
+    free(oldest_timer_node);
+}
+
+void destroy_all_timer() {
+    struct timer_node *timer_node;
+    timer_node = head->next;
+    while(timer_node != tail) {
+        destroy_oldest_timer();
+        timer_node = head->next;
+    }
+}
+
 int main (int argc, char **argv) {
 
 	// Check arguments 
@@ -62,6 +112,7 @@ int main (int argc, char **argv) {
 
     int is_connected = 0;
     int prev_byte, cur_byte;
+    init_timer_list();
     while(1){
         char cmdline[10];
         fgets(cmdline, 10, stdin);
@@ -102,6 +153,7 @@ int main (int argc, char **argv) {
             write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
             prev_byte = 0;
             cur_byte = 0;
+            destroy_all_timer();
             while(1) {
                 char packet[BUFFER_SIZE];
                 int packet_size = recv(socket_fd, packet, BUFFER_SIZE, 0);
@@ -118,7 +170,7 @@ int main (int argc, char **argv) {
                     fflush(stdout);
                     break;
                 }
-                set_timer(ack_delay);
+                add_new_timer(set_timer(ack_delay));
             }
         }
     }
@@ -149,6 +201,7 @@ void handler() {
     char client_message[CLIENT_MESSAGE_SIZE] = {'\0', };
     client_message[0] = 'A';
     send(socket_fd, client_message, CLIENT_MESSAGE_SIZE, 0);
+    destroy_oldest_timer();
 }
 
 /*
