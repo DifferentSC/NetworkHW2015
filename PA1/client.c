@@ -104,15 +104,20 @@ int main (int argc, char **argv) {
             cur_byte = 0;
             while(1) {
                 char packet[BUFFER_SIZE];
-                read(socket_fd, packet, BUFFER_SIZE);
-                int data_size = packet[0] * 256 + packet[1];
+                int packet_size = read(socket_fd, packet, BUFFER_SIZE);
+                if (packet_size == 0)
+                    continue;
+                printf("Packet Received = %dbytes\n", packet_size);
+                fflush(stdout);
                 prev_byte = cur_byte;
-                cur_byte += data_size;
+                cur_byte += packet_size;
                 if (prev_byte / (1024 * 1024) != cur_byte / (1024 * 1024)) {
                     printf("%d MB transmitted\n", cur_byte / (1024 * 1024));
+                    fflush(stdout);
                 }
-                if (data_size < BUFFER_SIZE - 2) {
+                if (packet_size < BUFFER_SIZE) {
                     printf("File transfer finished\n");
+                    fflush(stdout);
                     break;
                 }
                 set_timer(ack_delay);
@@ -145,7 +150,8 @@ void handler() {
 	// TODO: Send an ACK packet
     char client_message[CLIENT_MESSAGE_SIZE] = {'\0', };
     client_message[0] = 'A';
-    write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
+    int return_value = write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
+    printf("ACK sent, return_value = %d\n, socket fd = %d", return_value, socket_fd);
 }
 
 /*
