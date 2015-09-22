@@ -9,9 +9,12 @@
 #include <signal.h>
 
 #define BUFFER_SIZE 1000    // same as packet size
+#define CLIENT_MESSAGE_SIZE 3
 
 void handler();
 timer_t set_timer(long long);
+
+int socket_fd;
 
 int main (int argc, char **argv) {
 
@@ -46,7 +49,73 @@ int main (int argc, char **argv) {
     sigact.sa_handler = &handler;
     sigaction(SIGALRM, &sigact, NULL);
 
-    while(1){}
+    if ((socket_fd = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
+        printf("Opening socket failed!\n");
+        exit(1);
+    }
+
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = inet_addr(server_hostname);
+    server_addr.sin_port = htons(server_port);
+
+    int is_connected = 0;
+    int prev_byte, cur_byte;
+    while(1){
+        char cmdline[10];
+        scanf("%s", cmdline);
+        if (strlen(cmdline) == 0)
+            continue;
+        if (!strcmp("C", cmdline)) {
+            if (connect(socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+                printf("Connection failure!\n");
+                continue;
+            }
+        } else if (!strcmp("F", cmdline)) {
+            char client_message[CLIENT_MESSAGE_SIZE] = {'\0', };
+            client_message[0] = 'F';
+            write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
+            close(socket_fd);
+            break;
+        } else if (cmdline[0] == 'R') {
+            if (!is_connected) {
+                printf("Request cannot be made before making connection!\n");
+                continue;
+            }
+            int file_choice;
+            if(sscanf(cmdline, "R %d", &file_choice) < 1) {
+                printf("Cannot read file_choice from R command!\n");
+                continue;
+            }
+            if (file_choice < 0 && file_choice > 2) {
+                printf("Invalid file_choice! Should be between 0 and 2!\n");
+                continue;
+            }
+            char client_message[CLIENT_MESSAGE_SIZE];
+            client_message[0] = 'R';
+            client_message[1] = file_choice;
+            client_message[2] = window_size;
+            write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
+            prev_byte = 0;
+            cur_byte = 0;
+            while(1) {
+                char packet[BUFFER_SIZE];
+                read(socket_fd, packet, BUFFER_SIZE);
+                int data_size = packet[0] * 256 + packet[1];
+                prev_byte = cur_byte;
+                cur_byte += data_size;
+                if (prev_byte % (1024 * 1024) != cur_byte % (1024 * 1024)) {
+                    printf("%d MB transmitted\n", cur_byte % (1024 * 1024));
+                }
+                if (data_size < BUFFER_SIZE - 2) {
+                    printf("File transfer finished\n");
+                    break;
+                }
+                set_timer(ack_delay);
+            }
+        }
+    }
 
     // TODO: Create a socket for a client
     //      connect to a server
@@ -72,6 +141,9 @@ int main (int argc, char **argv) {
 void handler() {
     printf("Hi\n");
 	// TODO: Send an ACK packet
+    char client_message[CLIENT_MESSAGE_SIZE] = {'\0', };
+    client_message[0] = 'A';
+    write(socket_fd, client_message, 3);
 }
 
 /*
