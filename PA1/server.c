@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -11,43 +12,25 @@
 #define SN_SIZE 2
 #define CLIENT_MESSAGE_SIZE 3
 
-struct server_packet {
-    short size;
-    char file_data[BUFFER_SIZE - 2];
-};
-
-char* server_packet_to_bytes(struct server_packet packet) {
-    char *return_byte = (char *)malloc(BUFFER_SIZE * sizeof(char));
+int send_packet(int client_fd, FILE *fp, int *window_count, long last_pos) {
     
-    return_byte[0] = packet.size / 256;
-    return_byte[1] = packet.size % 256;
-    memcpy(return_byte+2, packet.file_data, (BUFFER_SIZE - 2) * sizeof(char));
+    char byte_data[BUFFER_SIZE];
+    memset(byte_data, 0, BUFFER_SIZE);
+    fread(byte_data + 1, 1, BUFFER_SIZE - 1, fp);
 
-    return return_byte;
-}
+    // last packet
+    if (ftell(fp) == last_pos)
+        byte_data[0] = 1;
+    else
+        byte_data[0] = 0;
+ 
+    write(client_fd, byte_data, BUFFER_SIZE);
+    (*window_count)++;
 
-void delete_and_shift(struct server_packet *window, int *window_count) {
-    int i;
-    for(i = 1; i < *window_count; i ++) {
-        window[i-1] = window[i];
-    }
-    *window_count--;
-}
-
-int read_file(FILE *fp, struct server_packet *packet) {
-    int i;
-    
-    for (i = 0; i < BUFFER_SIZE - 2; i ++) {
-        char temp;
-        if ((temp = fgetc(fp)) == EOF) {
-            packet->size = i;
-            return 1;
-        } else {
-            packet->file_data[i] = temp;
-        }
-    }
-    packet->size = BUFFER_SIZE - 2;
-    return 0;
+    if (byte_data[0] == 1)
+        return 1;
+    else
+        return 0;
 }
 
 int main (int argc, char **argv) {
@@ -81,51 +64,69 @@ int main (int argc, char **argv) {
         exit(1);
     }
 
-    if (listen(socket_fd, 1) < 0) {
+    if (listen(socket_fd, SOMAXCONN) < 0) {
         printf("Listening to socket failed!\n");
         exit(1);
     }
 
-    printf("Start waiting...");
-
-    struct server_packet *window;
+    printf("Start waiting...\n");
+    fflush(stdout);
     int window_count;
     FILE *fp = NULL;
     int is_read_finished = 1;
     int window_size;
-
-    while(1) {
-        // accept client fd
-        int len;
-        struct sockaddr_in client_addr;
-        int client_fd = accept(socket_fd, (struct sockaddr *)&client_addr, &len);
+    // accept client fd
+    struct sockaddr_in client_addr;
+    socklen_t len = sizeof(client_addr);
+    int client_fd = accept(socket_fd, (struct sockaddr *)&client_addr, &len);
+    long last_pos;
+    while(1) { 
         if (client_fd < 0) {
-            printf("Accepting client request failed!\n");
+             switch (errno) {
+                case EAGAIN:
+                    printf("No connections to be accepted!\n");
+                    break;
+                case EBADF:
+                    printf("Socket fd is not valid!\n");
+                    break;
+                case EINVAL:
+                    printf("Socket is not accepting connections!\n");
+                    break;
+                case ENFILE:
+                    printf("Maximum number of fd exceeded!\n");
+                    break;
+                case ENOTSOCK:
+                    printf("The socket argument does not refere to a socket!\n");
+                    break;
+                case ENOBUFS:
+                    printf("No buffer space available!\n");
+                    break;
+                default:
+                    printf("Unknown error!\n");
+            }
+            printf("Accepting client request failed! accept Returned: %d\n", client_fd); 
             exit(1);
         }
         char client_message[CLIENT_MESSAGE_SIZE];
-        int message_size = read(client_fd, client_message, CLIENT_MESSAGE_SIZE);
-        if (message_size != CLIENT_MESSAGE_SIZE) {
-            printf("Invalid client message size!\n");
-            exit(1);
+        int message_size = 0;
+        while (message_size < 3) {
+            int incr_message_size = read(client_fd, client_message + message_size, CLIENT_MESSAGE_SIZE - message_size);
+            message_size += incr_message_size;
         }
         if (client_message[0] == 'A') {
             // ACK
             if (window_count == 0) {
                 printf("Received ACK without sending message!\n");
                 exit(1);
+                continue;
             }
             if (fp == NULL) {
                 printf("Received ACK before fp is set!");
                 exit(1);
             }
-            delete_and_shift(window, &window_count);
-            if (!is_read_finished) {
-                while(window_count < window_size && !is_read_finished) {
-                    is_read_finished = read_file(fp, &window[window_count]);
-                    window_count++;
-                }
-            }
+            window_count--;
+            while(window_count < window_size && !is_read_finished)
+                is_read_finished = send_packet(client_fd, fp, &window_count, last_pos);
         } else if (client_message[0] == 'R') {
             // Request
             int file_choice = client_message[1];
@@ -138,14 +139,14 @@ int main (int argc, char **argv) {
                 exit(1);
             }
             fp = fopen(filename[file_choice], "r");
+            fseek(fp, 0, SEEK_END);
+            last_pos = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
             window_size = client_message[2];
-            window = (struct server_packet *)malloc(window_size * sizeof(struct server_packet));
             is_read_finished = 0;
             window_count = 0;
-            while(window_count < window_size && !is_read_finished) {
-                is_read_finished = read_file(fp, &window[window_count]);
-                window_count++;
-            }
+            while(window_count < window_size && !is_read_finished)
+                is_read_finished = send_packet(client_fd, fp, &window_count, last_pos);
         } else {
             printf("Invalid client request!\n");
             exit(1);
@@ -160,6 +161,7 @@ int main (int argc, char **argv) {
 	//		ACK packet.
     //      When a server receives an ACK packet, it will send
     //      next packet if available.
+    close(client_fd);
     close(socket_fd);
     return 0;
 }
