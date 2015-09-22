@@ -12,24 +12,14 @@
 #define SN_SIZE 2
 #define CLIENT_MESSAGE_SIZE 3
 
-struct server_packet {
-    short size;
-    char file_data[BUFFER_SIZE - 2];
-};
-
-char* server_packet_to_bytes(struct server_packet packet) {
-    char *return_byte = (char *)malloc(BUFFER_SIZE * sizeof(char));
-    
-    return_byte[0] = packet.size / 256;
-    return_byte[1] = packet.size % 256;
-    memcpy(return_byte+2, packet.file_data, (BUFFER_SIZE - 2) * sizeof(char));
-
-    return return_byte;
-}
-
-int read_file(FILE *fp, struct server_packet *packet) {
-    packet->size = fread(packet->file_data, 1, BUFFER_SIZE - 2, fp);
-    if (packet->size < BUFFER_SIZE - 2)
+int send_packet(int client_fd, FILE *fp, int *window_count) {
+    char byte_data[BUFFER_SIZE];
+    int read_bytes = fread(byte_data, 1, BUFFER_SIZE, fp);
+    printf("Bytes sent: %d", read_bytes);
+    fflush(stdout);
+    write(client_fd, byte_data, read_bytes);
+    (*window_count)++;
+    if (read_bytes < BUFFER_SIZE)
         return 1;
     else
         return 0;
@@ -66,7 +56,7 @@ int main (int argc, char **argv) {
         exit(1);
     }
 
-    if (listen(socket_fd, 1) < 0) {
+    if (listen(socket_fd, SOMAXCONN) < 0) {
         printf("Listening to socket failed!\n");
         exit(1);
     }
@@ -79,6 +69,7 @@ int main (int argc, char **argv) {
     int window_size;
 
     while(1) {
+        fflush(stdout);
         // accept client fd
         struct sockaddr_in client_addr;
         socklen_t len = sizeof(client_addr);
@@ -109,9 +100,11 @@ int main (int argc, char **argv) {
             printf("Accepting client request failed! accept Returned: %d\n", client_fd); 
             exit(1);
         }
+        printf("Hi!\n");
         char client_message[CLIENT_MESSAGE_SIZE];
         int message_size = read(client_fd, client_message, CLIENT_MESSAGE_SIZE);
         printf("Message Received: %c\n", client_message[0]);
+        fflush(stdout);
         if (message_size != CLIENT_MESSAGE_SIZE) {
             printf("Invalid client message size!\n");
             exit(1);
@@ -126,14 +119,8 @@ int main (int argc, char **argv) {
                 printf("Received ACK before fp is set!");
                 exit(1);
             }
-            if (!is_read_finished) {
-                while(window_count < window_size && !is_read_finished) {
-                    struct server_packet packet;
-                    is_read_finished = read_file(fp, &packet);
-                    write(client_fd, server_packet_to_bytes(packet), BUFFER_SIZE);
-                    window_count++;
-                }
-            }
+            while(window_count < window_size && !is_read_finished)
+                is_read_finished = send_packet(client_fd, fp, &window_count);              
         } else if (client_message[0] == 'R') {
             // Request
             int file_choice = client_message[1];
@@ -149,13 +136,10 @@ int main (int argc, char **argv) {
             window_size = client_message[2];
             is_read_finished = 0;
             window_count = 0;
-            while(window_count < window_size && !is_read_finished) {
-                struct server_packet packet;
-                is_read_finished = read_file(fp, &packet);
-                printf("Packet size = %d\n", packet.size);
-                write(client_fd, server_packet_to_bytes(packet), BUFFER_SIZE);
-                window_count++;
-            }
+            while(window_count < window_size && !is_read_finished)
+                is_read_finished = send_packet(client_fd, fp, &window_count);
+            printf("Done!\n");
+            fflush(stdout);
         } else {
             printf("Invalid client request!\n");
             exit(1);
