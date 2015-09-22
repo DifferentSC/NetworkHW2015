@@ -27,14 +27,6 @@ char* server_packet_to_bytes(struct server_packet packet) {
     return return_byte;
 }
 
-void delete_and_shift(struct server_packet *window, int *window_count) {
-    int i;
-    for(i = 1; i < *window_count; i ++) {
-        window[i-1] = window[i];
-    }
-    (*window_count)--;
-}
-
 int read_file(FILE *fp, struct server_packet *packet) {
     int i;
     
@@ -89,7 +81,6 @@ int main (int argc, char **argv) {
 
     printf("Start waiting...\n");
     fflush(stdout);
-    struct server_packet *window;
     int window_count;
     FILE *fp = NULL;
     int is_read_finished = 1;
@@ -143,10 +134,11 @@ int main (int argc, char **argv) {
                 printf("Received ACK before fp is set!");
                 exit(1);
             }
-            delete_and_shift(window, &window_count);
             if (!is_read_finished) {
                 while(window_count < window_size && !is_read_finished) {
-                    is_read_finished = read_file(fp, &window[window_count]);
+                    struct server_packet packet;
+                    is_read_finished = read_file(fp, &packet);
+                    write(client_fd, server_packet_to_bytes(packet), BUFFER_SIZE);
                     window_count++;
                 }
             }
@@ -163,11 +155,12 @@ int main (int argc, char **argv) {
             }
             fp = fopen(filename[file_choice], "r");
             window_size = client_message[2];
-            window = (struct server_packet *)malloc(window_size * sizeof(struct server_packet));
             is_read_finished = 0;
             window_count = 0;
             while(window_count < window_size && !is_read_finished) {
-                is_read_finished = read_file(fp, &window[window_count]);
+                struct server_packet packet;
+                is_read_finished = read_file(fp, &packet);
+                write(client_fd, server_packet_to_bytes(packet), BUFFER_SIZE);
                 window_count++;
             }
         } else {
