@@ -12,15 +12,15 @@
 #define CLIENT_MESSAGE_SIZE 3
 
 struct server_packet {
-    short sn;
+    short size;
     char file_data[BUFFER_SIZE - 2];
 };
 
 char* server_packet_to_bytes(struct server_packet packet) {
     char *return_byte = (char *)malloc(BUFFER_SIZE * sizeof(char));
     
-    return_byte[0] = packet.sn / 256;
-    return_byte[1] = packet.sn % 256;
+    return_byte[0] = packet.size / 256;
+    return_byte[1] = packet.size % 256;
     memcpy(return_byte+2, packet.file_data, (BUFFER_SIZE - 2) * sizeof(char));
 
     return return_byte;
@@ -34,19 +34,19 @@ void delete_and_shift(struct server_packet *window, int *window_count) {
     *window_count--;
 }
 
-int read_file(FILE *fp, struct server_packet *packet, short *sn) {
+int read_file(FILE *fp, struct server_packet *packet) {
     int i;
     
-    packet->sn = *sn;
-    *sn++;
     for (i = 0; i < BUFFER_SIZE - 2; i ++) {
         char temp;
         if ((temp = fgetc(fp)) == EOF) {
+            packet->size = i;
             return 1;
         } else {
             packet->file_data[i] = temp;
         }
     }
+    packet->size = BUFFER_SIZE - 2;
     return 0;
 }
 
@@ -93,7 +93,6 @@ int main (int argc, char **argv) {
     int window_count;
     FILE *fp = NULL;
     int is_read_finished = 1;
-    short sn;
 
     while(1) {
         // accept client fd
@@ -111,7 +110,6 @@ int main (int argc, char **argv) {
             exit(1);
         }
         if (client_message[0] == 'A') {
-            short client_sn = client_message[1] * 256 + client_message[2];
             // ACK
             if (window_count == 0) {
                 printf("Received ACK without sending message!\n");
@@ -121,14 +119,10 @@ int main (int argc, char **argv) {
                 printf("Received ACK before fp is set!");
                 exit(1);
             }
-            if (window[0].sn != client_sn) {
-                printf("ACK or message is missing!\n");
-                exit(1);
-            }
             delete_and_shift(window, &window_count);
             if (!is_read_finished) {
                 while(window_count < window_size && !is_read_finished) {
-                    is_read_finished = read_file(fp, &window[window_count], &sn);
+                    is_read_finished = read_file(fp, &window[window_count]);
                     window_count++;
                 }
             }
@@ -146,9 +140,8 @@ int main (int argc, char **argv) {
             fp = fopen(filename[file_choice], "r");
             is_read_finished = 0;
             window_count = 0;
-            sn = 0;
             while(window_count < window_size && !is_read_finished) {
-                is_read_finished = read_file(fp, &window[window_count], &sn);
+                is_read_finished = read_file(fp, &window[window_count]);
                 window_count++;
             }
         } else {
