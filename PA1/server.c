@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -31,7 +32,7 @@ void delete_and_shift(struct server_packet *window, int *window_count) {
     for(i = 1; i < *window_count; i ++) {
         window[i-1] = window[i];
     }
-    *window_count--;
+    (*window_count)--;
 }
 
 int read_file(FILE *fp, struct server_packet *packet) {
@@ -86,8 +87,8 @@ int main (int argc, char **argv) {
         exit(1);
     }
 
-    printf("Start waiting...");
-
+    printf("Start waiting...\n");
+    fflush(stdout);
     struct server_packet *window;
     int window_count;
     FILE *fp = NULL;
@@ -96,15 +97,38 @@ int main (int argc, char **argv) {
 
     while(1) {
         // accept client fd
-        int len;
         struct sockaddr_in client_addr;
+        socklen_t len = sizeof(client_addr);
         int client_fd = accept(socket_fd, (struct sockaddr *)&client_addr, &len);
         if (client_fd < 0) {
-            printf("Accepting client request failed!\n");
+             switch (errno) {
+                case EAGAIN:
+                    printf("No connections to be accepted!\n");
+                    break;
+                case EBADF:
+                    printf("Socket fd is not valid!\n");
+                    break;
+                case EINVAL:
+                    printf("Socket is not accepting connections!\n");
+                    break;
+                case ENFILE:
+                    printf("Maximum number of fd exceeded!\n");
+                    break;
+                case ENOTSOCK:
+                    printf("The socket argument does not refere to a socket!\n");
+                    break;
+                case ENOBUFS:
+                    printf("No buffer space available!\n");
+                    break;
+                default:
+                    printf("Unknown error!\n");
+            }
+            printf("Accepting client request failed! accept Returned: %d\n", client_fd); 
             exit(1);
         }
         char client_message[CLIENT_MESSAGE_SIZE];
         int message_size = read(client_fd, client_message, CLIENT_MESSAGE_SIZE);
+        printf("Message Received: %c\n", client_message[0]);
         if (message_size != CLIENT_MESSAGE_SIZE) {
             printf("Invalid client message size!\n");
             exit(1);
@@ -150,6 +174,7 @@ int main (int argc, char **argv) {
             printf("Invalid client request!\n");
             exit(1);
         }
+        close(client_fd);
     }
 
 	// TODO: Read a specified file and send it to a client.
