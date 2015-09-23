@@ -27,8 +27,10 @@ int send_packet(int client_fd, FILE *fp, int *window_count, long last_pos) {
     write(client_fd, byte_data, BUFFER_SIZE);
     (*window_count)++;
 
-    if (byte_data[0] == 1)
+    if (byte_data[0] == 1){
+        printf("Finished file transfer\n");
         return 1;
+    }
     else
         return 0;
 }
@@ -47,7 +49,7 @@ int main (int argc, char **argv) {
     int socket_fd;
     // Opening socket
     if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        printf("Opening socket failed!\n");
+        printf("Opening socket failed! socket() returned %d\n", socket_fd);
         exit(1);
     }
 
@@ -59,17 +61,18 @@ int main (int argc, char **argv) {
     server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
     server_addr.sin_port = htons(port);
     // Binding
-    if (bind(socket_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        printf("Binding failed! bind() returned\n");
+    int bind_ret_val;
+    if ((bind_ret_val = bind(socket_fd, (struct sockaddr *)&server_addr, sizeof(server_addr))) < 0) {
+        printf("Binding failed! bind() returned %d\n", bind_ret_val);
+        exit(1);
+    }
+    int listen_ret_val;
+    if ((listen_ret_val = listen(socket_fd, SOMAXCONN)) < 0) {
+        printf("Listening to socket failed! listen() returned %d\n", listen_ret_val);
         exit(1);
     }
 
-    if (listen(socket_fd, SOMAXCONN) < 0) {
-        printf("Listening to socket failed!\n");
-        exit(1);
-    }
-
-    printf("Start waiting...\n");
+    printf("Start listening...\n");
     fflush(stdout);
     int window_count;
     FILE *fp = NULL;
@@ -79,34 +82,35 @@ int main (int argc, char **argv) {
     struct sockaddr_in client_addr;
     socklen_t len = sizeof(client_addr);
     int client_fd = accept(socket_fd, (struct sockaddr *)&client_addr, &len);
+    if (client_fd < 0) {
+         switch (errno) {
+            case EAGAIN:
+                printf("No connections to be accepted!\n");
+                break;
+            case EBADF:
+                printf("Socket fd is not valid!\n");
+                break;
+            case EINVAL:
+                printf("Socket is not accepting connections!\n");
+                break;
+            case ENFILE:
+                printf("Maximum number of fd exceeded!\n");
+                break;
+            case ENOTSOCK:
+                printf("The socket argument does not refere to a socket!\n");
+                break;
+            case ENOBUFS:
+                printf("No buffer space available!\n");
+                break;
+            default:
+                printf("Unknown error!\n");
+        }
+        printf("Accepting client request failed! accept Returned: %d\n", client_fd); 
+        exit(1);
+    }
+    printf("Connected to client. fd = %d\n", client_fd);
     long last_pos;
     while(1) { 
-        if (client_fd < 0) {
-             switch (errno) {
-                case EAGAIN:
-                    printf("No connections to be accepted!\n");
-                    break;
-                case EBADF:
-                    printf("Socket fd is not valid!\n");
-                    break;
-                case EINVAL:
-                    printf("Socket is not accepting connections!\n");
-                    break;
-                case ENFILE:
-                    printf("Maximum number of fd exceeded!\n");
-                    break;
-                case ENOTSOCK:
-                    printf("The socket argument does not refere to a socket!\n");
-                    break;
-                case ENOBUFS:
-                    printf("No buffer space available!\n");
-                    break;
-                default:
-                    printf("Unknown error!\n");
-            }
-            printf("Accepting client request failed! accept Returned: %d\n", client_fd); 
-            exit(1);
-        }
         char client_message[CLIENT_MESSAGE_SIZE];
         int message_size = 0;
         while (message_size < 3) {
@@ -145,8 +149,12 @@ int main (int argc, char **argv) {
             window_size = client_message[2];
             is_read_finished = 0;
             window_count = 0;
+            printf("Start transferring file %d...\n", file_choice + 1);
             while(window_count < window_size && !is_read_finished)
                 is_read_finished = send_packet(client_fd, fp, &window_count, last_pos);
+        } else if(client_message[0] == 'F') {
+            printf("Client connection closed. Terminating...\n");
+            break;
         } else {
             printf("Invalid client request!\n");
             exit(1);
