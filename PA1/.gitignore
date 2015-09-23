@@ -1,4 +1,6 @@
-.mp4
+data
+*.mp4
 server
 client
-
+server.o
+client.o
