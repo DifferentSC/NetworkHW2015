@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <time.h>
 #include <signal.h>
 
@@ -82,6 +83,7 @@ int main (int argc, char **argv) {
                 continue;
             }
             is_connected = 1;
+            printf("Connection established\n");
         } else if (!strcmp("F", cmdline)) {
             char client_message[CLIENT_MESSAGE_SIZE];
             memset(client_message, 0, CLIENT_MESSAGE_SIZE);
@@ -90,6 +92,7 @@ int main (int argc, char **argv) {
             write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
             // close the socket
             close(socket_fd);
+            printf("Connection terminated\n");
             break;
         } else if (cmdline[0] == 'R') {
             if (!is_connected) {
@@ -112,7 +115,9 @@ int main (int argc, char **argv) {
             client_message[2] = window_size;
             write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
             prev_byte = 0;
-            cur_byte = 0; 
+            cur_byte = 0;
+            struct timeval tval_start, tval_end;
+            gettimeofday(&tval_start, NULL);
             while(1) {
                 char packet[BUFFER_SIZE];
                 memset(packet, 0, BUFFER_SIZE);
@@ -136,6 +141,9 @@ int main (int argc, char **argv) {
                 timer_list[next_timer_index] = set_timer(ack_delay);
                 next_timer_index = (next_timer_index + 1) % timer_list_size;
             }
+            gettimeofday(&tval_end, NULL); 
+            float msec = (tval_end.tv_sec - tval_start.tv_sec) * 1000 + (float)(tval_end.tv_usec - tval_start.tv_usec) / (float) 1000;
+            printf("Transfer time: %.2lfms\n", msec);
         }
     }
     free(timer_list); 
@@ -184,3 +192,4 @@ timer_t set_timer(long long time) {
     total_timer_count++;
     return t_id;
 }
+
