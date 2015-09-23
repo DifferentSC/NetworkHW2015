@@ -19,5 +19,5 @@ You can run your client via
 
 `./client <host_name> <port_num> -w <window_size> -d <ACK_delay>`
 
-Working history is available on git. Use `git log` on local repository or visit `https://github.com/DifferentSC/NetworkHW2015` for more information.
+Working history is available on git. Use `git log` on local repository or visit https://github.com/DifferentSC/NetworkHW2015 for more information.
 
