@@ -11,7 +11,7 @@ Gyewon Lee, 2015-21252
 
 To build both client and server code, use command `make`
 
-You can run your client via
+You can run your server via
 
 `./server <port_num>`
 
