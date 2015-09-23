@@ -30,16 +30,7 @@ int main (int argc, char **argv) {
         printf("\t\t-d\t\tACK delay in msec");
         exit(1);
     }
-
-    sleep(1);
-
-/*
-    // Set Handler for timers
-    struct sigaction sigact;
-    sigemptyset(&sigact.sa_mask);
-    sigaddset(&sigact.sa_mask, SIGALRM);
-    sigact.sa_handler = &handler;
-    sigaction(SIGALRM, &sigact, NULL);*/
+    // Set Handler for timers 
 
     signal(SIGALRM, handler);
 
@@ -71,7 +62,7 @@ int main (int argc, char **argv) {
 
     int is_connected = 0;
     int prev_byte, cur_byte;
-    // initialize timer list
+    // initialize timer list (circular queue)
     next_timer_index = 0;
     last_alive_timer_index = 0;
     dead_timer_count = 0;
@@ -95,7 +86,9 @@ int main (int argc, char **argv) {
             char client_message[CLIENT_MESSAGE_SIZE];
             memset(client_message, 0, CLIENT_MESSAGE_SIZE);
             client_message[0] = 'F';
+            // Send terminating message
             write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
+            // close the socket
             close(socket_fd);
             break;
         } else if (cmdline[0] == 'R') {
@@ -108,7 +101,7 @@ int main (int argc, char **argv) {
                 printf("Cannot read file_choice from R command!\n");
                 continue;
             }
-            if (file_choice < 1 && file_choice > 3) {
+            if (file_choice < 1 || file_choice > 3) {
                 printf("Invalid file_choice! Should be between 1 and 3!\n");
                 continue;
             }
@@ -129,34 +122,23 @@ int main (int argc, char **argv) {
                     packet_size += incr_packet_size;
                 }
                 prev_byte = cur_byte;
+                // 1 byte is used for indication of the last packet
                 cur_byte += packet_size - 1;
                 if (prev_byte / (1024 * 1024) != cur_byte / (1024 * 1024)) {
                     printf("%d MB transmitted\n", cur_byte / (1024 * 1024));
                 }
+                // Packet[0] represents whether the packet is the last or not
                 if (packet[0] == 1) {
                     printf("File transfer finished\n");
                     break;
                 }
+                // Set timer and put the timer to the circular queue
                 timer_list[next_timer_index] = set_timer(ack_delay);
                 next_timer_index = (next_timer_index + 1) % timer_list_size;
             }
         }
     }
-    free(timer_list);
-
-    // TODO: Create a socket for a client
-    //      connect to a server
-    //      set ACK delay
-    //      set server window size
-    //      specify a file to receive
-    //      finish the connection
-
-    // TODO: Receive a packet from server
-    //      set timer for ACK delay
-    //      send ACK packet back to server (usisng handler())
-    //      You may use "ack_packet"
-
-    // TODO: Close the socket
+    free(timer_list); 
     return 0;
 }
 
@@ -166,11 +148,11 @@ int main (int argc, char **argv) {
  * Send ACK to the server
  */
 void handler() {
-	// TODO: Send an ACK packet
     char client_message[CLIENT_MESSAGE_SIZE];
     memset(client_message, 0, CLIENT_MESSAGE_SIZE);
     client_message[0] = 'A';
     write(socket_fd, client_message, CLIENT_MESSAGE_SIZE);
+    // increase the number of out-of-date timers
     dead_timer_count++;
 }
 
@@ -193,7 +175,7 @@ timer_t set_timer(long long time) {
     if (timer_settime(t_id, 0, &time_spec, NULL))
         perror("timer_settime");
 
-    // delete dead timers
+    // delete dead timers in circular queue
     for(; dead_timer_count != 0; dead_timer_count--) {
         timer_delete(timer_list[last_alive_timer_index]);
         total_timer_count--;
